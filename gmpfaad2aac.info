@@ -1,0 +1,4 @@
+Name: gmpfaad2aac
+Description: GMP Plugin for FAAD2.
+Version: 1.0
+APIs: decode-audio[aac]
