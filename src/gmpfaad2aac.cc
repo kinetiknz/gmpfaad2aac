@@ -26,10 +26,13 @@ private:
   NeAACDecHandle decoder_;
 };
 
+static GMPPlatformAPI * gAPI;
+
 extern "C" GMPErr
 GMPInit(GMPPlatformAPI * api)
 {
-  // Stash reference to GMPPlatformAPI.
+  assert(!gAPI);
+  gAPI = api;
   return GMPNoErr;
 }
 
@@ -49,7 +52,8 @@ GMPGetAPI(char const * name, void * hostAPI, void ** pluginAPI)
 extern "C" void
 GMPShutdown()
 {
-  // Clear reference to GMPPlatformAPI from Init.
+  delete gAPI;
+  gAPI = nullptr;
 }
 
 FAAD2AudioDecoder::FAAD2AudioDecoder(GMPAudioHost* audioHost)
@@ -77,31 +81,39 @@ FAAD2AudioDecoder::InitDecode(GMPAudioCodec const & codecSettings, GMPAudioDecod
     return;
   }
 
-   decoder_ = NeAACDecOpen();
-   if (!decoder_) {
-     callback_->Error(GMPAllocErr);
-     return;
-   }
+  decoder_ = NeAACDecOpen();
+  if (!decoder_) {
+    callback_->Error(GMPAllocErr);
+    return;
+  }
 
-   NeAACDecConfigurationPtr config = NeAACDecGetCurrentConfiguration(decoder_);
-   assert(config);
-   config->outputFormat = FAAD_FMT_16BIT;
-   NeAACDecSetConfiguration(decoder_, config);
+  NeAACDecConfigurationPtr config = NeAACDecGetCurrentConfiguration(decoder_);
+  assert(config);
+  config->outputFormat = FAAD_FMT_16BIT;
+  NeAACDecSetConfiguration(decoder_, config);
 
-   // XXX(kinetik): Need to deal with ADTS/ADIF/DecoderSpecificInfo.
-   // or just delay until first Decode comes through, then stuff in some data?
-   long r = NeAACDecInit(decoder_, const_cast<unsigned char *>(codecSettings.mExtraData), codecSettings.mExtraDataLen, nullptr, nullptr);
-   if (r != 0) {
-     callback_->Error(GMPGenericErr);
-     return;
-   }
+  // XXX(kinetik): Need to deal with ADTS/ADIF/DecoderSpecificInfo.
+  // or just delay until first Decode comes through, then stuff in some data?
+  unsigned long rate;
+  unsigned char channels;
+  long r = NeAACDecInit2(decoder_, const_cast<unsigned char *>(codecSettings.mExtraData), codecSettings.mExtraDataLen,
+                         &rate, &channels);
+  if (r != 0) {
+    callback_->Error(GMPGenericErr);
+    NeAACDecClose(decoder_);
+    decoder_ = nullptr;
+    return;
+  }
 }
 
 void
 FAAD2AudioDecoder::Decode(GMPAudioSamples * encodedSamples)
 {
   assert(callback_);
-  assert(decoder_);
+  if (!decoder_) {
+    callback_->Error(GMPGenericErr);
+    return;
+  }
 
   assert(encodedSamples->GetFormat() == kGMPAudioEncodedSamples);
 
@@ -115,12 +127,12 @@ FAAD2AudioDecoder::Decode(GMPAudioSamples * encodedSamples)
 
   GMPAudioSamples* output;
   GMPErr err = audio_host_->CreateSamples(kGMPAudioIS16Samples, &output);
-  if (err != GMPNoErr) {
+  if (GMP_FAILED(err)) {
     callback_->Error(GMPDecodeErr);
     return;
   }
   if (frame_info.samples > 0) {
-    output->SetBufferSize(frame_info.samples / frame_info.channels);
+    output->SetBufferSize(frame_info.samples * sizeof(int16_t));
     memcpy(output->Buffer(), samples, output->Size());
 
     output->SetTimeStamp(0); // XXX(kinetik): how do we get this?
@@ -147,7 +159,7 @@ FAAD2AudioDecoder::Drain()
 {
   assert(callback_);
   assert(decoder_);
-  // XXX(kinetik): Need to pump NeAACDecode for leftovers or not?
+
   callback_->DrainComplete();
 }
 
