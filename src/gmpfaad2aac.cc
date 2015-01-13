@@ -1,3 +1,9 @@
+/*
+ * Copyright © 2015 Matthew Gregan
+ *
+ * This program is made available under an ISC-style license.  See the
+ * accompanying file LICENSE for details.
+ */
 #include <assert.h>
 #include <string.h>
 
