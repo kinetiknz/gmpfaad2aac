@@ -98,8 +98,6 @@ FAAD2AudioDecoder::InitDecode(GMPAudioCodec const & codecSettings, GMPAudioDecod
   config->outputFormat = FAAD_FMT_16BIT;
   NeAACDecSetConfiguration(decoder_, config);
 
-  // XXX(kinetik): Need to deal with ADTS/ADIF/DecoderSpecificInfo.
-  // or just delay until first Decode comes through, then stuff in some data?
   unsigned long rate;
   unsigned char channels;
   long r = NeAACDecInit2(decoder_, const_cast<unsigned char *>(codecSettings.mExtraData), codecSettings.mExtraDataLen,
@@ -129,7 +127,7 @@ FAAD2AudioDecoder::Decode(GMPAudioSamples * encodedSamples)
     callback_->Error(GMPDecodeErr);
     return;
   }
-  assert(frame_info.bytesconsumed == encodedSamples->Size()); // XXX(kinetik): might be wrong/too strict
+  assert(frame_info.bytesconsumed == encodedSamples->Size());
 
   GMPAudioSamples* output;
   GMPErr err = audio_host_->CreateSamples(kGMPAudioIS16Samples, &output);
@@ -141,12 +139,13 @@ FAAD2AudioDecoder::Decode(GMPAudioSamples * encodedSamples)
     output->SetBufferSize(frame_info.samples * sizeof(int16_t));
     memcpy(output->Buffer(), samples, output->Size());
 
-    output->SetTimeStamp(0); // XXX(kinetik): how do we get this?
+    output->SetTimeStamp(encodedSamples->TimeStamp());
     output->SetChannels(frame_info.channels);
     output->SetRate(frame_info.samplerate);
     callback_->Decoded(output);
   }
 
+  encodedSamples->Destroy();
   callback_->InputDataExhausted();
 }
 
@@ -156,7 +155,7 @@ FAAD2AudioDecoder::Reset()
   assert(callback_);
   assert(decoder_);
 
-  NeAACDecPostSeekReset(decoder_, 0); // XXX(kinetik): what should the last, 'frame', param be?
+  NeAACDecPostSeekReset(decoder_, 0);
   callback_->ResetComplete();
 }
 
